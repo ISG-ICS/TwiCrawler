@@ -53,10 +53,15 @@ def thread_function(mode, keywords):
     elif mode == "id_mode":
         tweet_id_mode_crawler = TweetIDModeCrawler()
         while True:
-            for ids in _fetch_id_from_db():
-                status = tweet_id_mode_crawler.crawl(ids)
-                tweets = tweet_extractor.extract(status)
-                tweet_dumper.insert(tweets)
+            try:
+                for ids in _fetch_id_from_db():
+                    status = tweet_id_mode_crawler.crawl(ids)
+                    tweets = tweet_extractor.extract(status)
+                    tweet_dumper.insert(tweets)
+                    time.sleep(5)
+            except:
+                pass
+            finally:
                 time.sleep(5)
 
 
