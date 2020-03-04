@@ -11,7 +11,7 @@ from crawler.twitter_id_mode_crawler import TweetIDModeCrawler
 from crawler.twitter_search_api_crawler import TweetSearchAPICrawler
 from dumper.twitter_dumper import TweetDumper
 from extractor.twitter_extractor import TweetExtractor
-from paths import TWITTER_TEXT_CACHE, LOG_CONFIG_PATH, LOG_DIR
+from paths import TWITTER_TEXT_CACHE, LOG_CONFIG_PATH, LOG_DIR, BACKUP_DIR, CACHE_DIR
 from utilities.cacheset import CacheSet
 from utilities.connection import Connection
 
@@ -57,6 +57,7 @@ def thread_function(mode, keywords):
                 for ids in _fetch_id_from_db():
                     status = tweet_id_mode_crawler.crawl(ids)
                     tweets = tweet_extractor.extract(status)
+                    tweet_extractor.export(status, file_name="coronavirus")
                     tweet_dumper.insert(tweets)
                     time.sleep(5)
             except:
@@ -116,6 +117,11 @@ if __name__ == "__main__":
     logging.basicConfig(format=format, level=logging.INFO, filename=os.path.join(LOG_DIR, current_time + handler_name),
                         datefmt="%H:%M:%S")
     logging.getLogger().addHandler(logging.StreamHandler())
+
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+    if not os.path.exists(BACKUP_DIR):
+        os.makedirs(BACKUP_DIR)
 
     logging.info('Crawler Starting...')
 

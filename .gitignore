@@ -183,3 +183,4 @@ data/*
 *.ini
 
 cache/*
+backup/*

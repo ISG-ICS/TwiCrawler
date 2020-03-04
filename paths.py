@@ -20,3 +20,6 @@ LOG_CONFIG_PATH = os.path.join(CONFIGS_DIR, 'logger-conf.json')
 CACHE_DIR = os.path.join(ROOT_DIR, 'cache')
 
 TWITTER_TEXT_CACHE = os.path.join(CACHE_DIR, 'twitter.cache.pickle')
+
+# dir for data backup
+BACKUP_DIR = os.path.join(ROOT_DIR, 'backup')

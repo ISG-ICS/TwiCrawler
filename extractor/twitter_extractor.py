@@ -1,11 +1,16 @@
 import datetime
 import json
+import os
 from datetime import datetime
 from typing import List, Optional, Dict
 
 import rootpath
 
 rootpath.append()
+
+from crawler.twitter_filter_api_crawler import TweetFilterAPICrawler
+from crawler.twitter_id_mode_crawler import TweetIDModeCrawler
+from paths import BACKUP_DIR
 
 from extractor.extractorbase import ExtractorBase
 
@@ -66,13 +71,34 @@ class TweetExtractor(ExtractorBase):
         return self.data
         # stores self.data and returns a reference of it
 
-    def export(self, file_type: str, file_name: str) -> None:
+    def export(self, data, file_type="json", file_name="", dir=BACKUP_DIR) -> None:
         """exports data with specified file type"""
-        # for example, json
-        replace_list = list(self.data)
-        # make replace_list equal to self.data and change it
+
+        if not os.path.exists(BACKUP_DIR):
+            os.makedirs(BACKUP_DIR)
         if file_type == 'json':
-            for each_extractor_line in replace_list:
-                each_extractor_line['date_time'] = str(each_extractor_line['date_time'])
-                # json does not accept datetime values, does change it into string
-            json.dump(replace_list, open(file_name, 'w'))
+
+            file_name += f"_{datetime.now().strftime('%m-%d-%Y')}.{file_type}"
+            with open(os.path.join(dir, file_name), 'a+') as file:
+                for one in data:
+                    file.write(str(one) + '\n')
+        else:
+            raise TypeError(f"not supported export file type {file_type}")
+
+
+if __name__ == '__main__':
+
+    tweet_filter_api_crawler = TweetFilterAPICrawler()
+
+    tweet_id_mode_crawler = TweetIDModeCrawler()
+    tweet_extractor = TweetExtractor()
+    for _ in range(1):
+        raw_ids = tweet_filter_api_crawler.crawl(['coronavirus'], batch_number=1)
+        status = tweet_id_mode_crawler.crawl(raw_ids)
+        print(status)
+        print(tweet_extractor.extract(status))
+        tweet_extractor.export(status, file_name="coronavirus")
+    with open("03-04-2020.json", 'r') as file:
+        status = file.readlines()
+        print(status)
+        print(tweet_extractor.extract(status))
