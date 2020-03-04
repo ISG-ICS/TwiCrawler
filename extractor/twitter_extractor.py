@@ -1,4 +1,5 @@
 import datetime
+import gzip
 import json
 import os
 from datetime import datetime
@@ -71,17 +72,17 @@ class TweetExtractor(ExtractorBase):
         return self.data
         # stores self.data and returns a reference of it
 
-    def export(self, data, file_type="json", file_name="", dir=BACKUP_DIR) -> None:
+    def export(self, data, file_type="gz", file_name="", dir=BACKUP_DIR) -> None:
         """exports data with specified file type"""
 
         if not os.path.exists(BACKUP_DIR):
             os.makedirs(BACKUP_DIR)
-        if file_type == 'json':
+        if file_type == 'gz':
 
             file_name += f"_{datetime.now().strftime('%m-%d-%Y')}.{file_type}"
-            with open(os.path.join(dir, file_name), 'a+') as file:
+            with gzip.open(os.path.join(dir, file_name), 'a+') as file:
                 for one in data:
-                    file.write(str(one) + '\n')
+                    file.write(bytes(str(one) + '\n', encoding='utf8'))
         else:
             raise TypeError(f"not supported export file type {file_type}")
 
@@ -98,7 +99,8 @@ if __name__ == '__main__':
         print(status)
         print(tweet_extractor.extract(status))
         tweet_extractor.export(status, file_name="coronavirus")
-    with open("03-04-2020.json", 'r') as file:
+    with gzip.open("../backup/coronavirus_03-04-2020.gz", 'r') as file:
         status = file.readlines()
+        status = [one.decode('utf-8') for one in status]
         print(status)
         print(tweet_extractor.extract(status))
