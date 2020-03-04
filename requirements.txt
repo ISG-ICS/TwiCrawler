@@ -4,3 +4,5 @@ requests
 tokenizer
 rootpath
 python-twitter
+numpy
+psycopg2
