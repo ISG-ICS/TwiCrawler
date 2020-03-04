@@ -8,15 +8,13 @@ from typing import List, Set
 
 import requests
 import rootpath
-import twitter
 
 rootpath.append()
 
-from paths import TWITTER_API_CONFIG_PATH
 from crawler.crawlerbase import CrawlerBase
-from utilities.ini_parser import parse
 from utilities.cacheset import CacheSet
 
+from utilities.twitter_api_load_balancer import TwitterAPILoadBalancer
 logger = logging.getLogger()
 
 
@@ -26,7 +24,7 @@ class TweetSearchAPICrawler(CrawlerBase):
     def __init__(self):
         super().__init__()
         self.wait_time = 1
-        self.api = twitter.Api(**parse(TWITTER_API_CONFIG_PATH, 'twitter-API'))
+        self.api = TwitterAPILoadBalancer().get()
         self.data = []
         self.keywords = []
         self.total_crawled_count = 0

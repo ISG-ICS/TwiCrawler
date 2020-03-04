@@ -9,10 +9,10 @@ import twitter
 
 rootpath.append()
 
-from paths import TWITTER_API_CONFIG_PATH
 from crawler.crawlerbase import CrawlerBase
 from crawler.twitter_filter_api_crawler import TweetFilterAPICrawler
-from utilities.ini_parser import parse
+
+from utilities.twitter_api_load_balancer import TwitterAPILoadBalancer
 
 logger = logging.getLogger()
 
@@ -23,7 +23,7 @@ class TweetIDModeCrawler(CrawlerBase):
     def __init__(self):
         super().__init__()
         self.wait_time = 1
-        self.api = twitter.Api(**parse(TWITTER_API_CONFIG_PATH, 'twitter-API'))
+        self.api = TwitterAPILoadBalancer().get()
         self.data: List[twitter.Status] = []
         self.total_crawled_count = 0
 
@@ -43,7 +43,7 @@ class TweetIDModeCrawler(CrawlerBase):
         while True:
             try:
                 logger.info(f'ID Mode sending a Request to Twitter Get Status API')
-                status  = self.api.GetStatuses(unique_ids)
+                status = self.api.GetStatuses(unique_ids)
                 self.data = set()
                 for i, tweet_json_string in enumerate(status):
                     tweet = json.loads(str(tweet_json_string))
