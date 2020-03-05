@@ -128,12 +128,9 @@ if __name__ == "__main__":
 
     logging.info('Crawler Starting...')
 
-    keywords = read_keywords()
-
-
     threads = list()
     for mode in ['id_mode', 'search_mode', 'filter_mode']:
-        thread = threading.Thread(target=thread_function, args=(mode))
+        thread = threading.Thread(target=thread_function, args=(mode,))
         threads.append(thread)
         thread.start()
 
