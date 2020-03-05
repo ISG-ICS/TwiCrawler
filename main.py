@@ -36,18 +36,20 @@ def _fetch_id_from_db():
     yield result
 
 
-def thread_function(mode, keywords):
+def thread_function(mode):
     tweet_dumper = TweetDumper()
     tweet_extractor = TweetExtractor()
     if mode == "filter_mode":
         tweet_filter_api_crawler = TweetFilterAPICrawler()
         while True:
+            keywords = read_keywords()
             ids = tweet_filter_api_crawler.crawl(keywords, batch_number=100)
             tweet_dumper.insert(ids, id_mode=True)
             time.sleep(10)
     elif mode == "search_mode":
         tweet_search_api_crawler = TweetSearchAPICrawler()
         while True:
+            keywords = read_keywords()
             ids = tweet_search_api_crawler.crawl(keywords, batch_number=100)
             tweet_dumper.insert(ids, id_mode=True)
     elif mode == "id_mode":
@@ -73,6 +75,7 @@ def read_keywords():
             keyword = line.strip().lower()
             if keyword:
                 keywords.add(keyword)
+    logging.info(f"LOADING keywords={keywords}")
     return list(keywords)
 
 
@@ -127,10 +130,10 @@ if __name__ == "__main__":
 
     keywords = read_keywords()
 
-    logging.info(f"keywords={keywords}")
+
     threads = list()
     for mode in ['id_mode', 'search_mode', 'filter_mode']:
-        thread = threading.Thread(target=thread_function, args=(mode, keywords))
+        thread = threading.Thread(target=thread_function, args=(mode))
         threads.append(thread)
         thread.start()
 
