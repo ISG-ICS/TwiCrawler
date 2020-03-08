@@ -8,6 +8,7 @@ from typing import List, Set
 
 import requests
 import rootpath
+from fake_useragent import UserAgent
 
 rootpath.append()
 
@@ -30,6 +31,7 @@ class TweetSearchAPICrawler(CrawlerBase):
         self.total_crawled_count = 0
         self.cache: CacheSet[int] = CacheSet()
         self.data_from_db_count = 0
+        self.ua = UserAgent()
 
     def crawl(self, keywords: List, batch_number: int) -> List[int]:
         """
@@ -81,8 +83,7 @@ class TweetSearchAPICrawler(CrawlerBase):
         for keyword in self.keywords:
             # allows the input to be a keyword list
             headers = {
-                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_4) AppleWebKit/537.36 (KHTML, like Gecko) '
-                              'Chrome/72.0.3626.121 Safari/537.36 '
+                'user-agent': self.ua.random
             }  # Simulates request from a mac browser
             try:
                 resp = requests.get(
@@ -110,5 +111,5 @@ if __name__ == '__main__':
     tweet_search_api_crawler = TweetSearchAPICrawler()
 
     for _ in range(10):
-        raw_tweets = tweet_search_api_crawler.crawl(['冠状病毒', '武汉', '新冠病毒', '武汉肺炎', '新冠肺炎'], batch_number=20)
+        raw_tweets = tweet_search_api_crawler.crawl(['coronavirus'], batch_number=20)
         print(raw_tweets)
