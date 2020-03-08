@@ -95,6 +95,7 @@ class TweetSearchAPICrawler(CrawlerBase):
                 # Clears all punctuation from raw response body
             content = str(resp.content).translate(str.maketrans("", "", string.punctuation))
             ids.update(map(int, re.findall("dataitemid(\d+)", content)))
+            time.sleep(0.001)
 
         return self._filter(ids)
 
