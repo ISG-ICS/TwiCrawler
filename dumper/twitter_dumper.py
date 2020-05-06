@@ -1,7 +1,7 @@
 import datetime
 import logging
 import traceback
-from typing import List, Dict, Tuple, Union
+from typing import List, Dict, Tuple, Union, Iterable
 
 import rootpath
 from psycopg2 import extras
@@ -118,6 +118,10 @@ user_location= excluded.user_location, statuses_count= excluded.statuses_count;"
                f'inserted_location_records={self.inserted_locations_count}}}'
 
     __repr__ = __str__
+
+    def delete(self, ids: Iterable[int]):
+        for i in ids:
+            Connection.sql_execute_commit(f"update records set deleted = true where id = {i}")
 
 
 if __name__ == '__main__':

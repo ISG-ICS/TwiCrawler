@@ -3,6 +3,7 @@ import logging
 import logging.config
 import os
 import pickle
+import sys
 import time
 from multiprocessing import Process
 
@@ -25,7 +26,7 @@ def _fetch_id_from_db():
     """a generator which generates 100 id list at a time"""
     result = list()
     for id, in Connection.sql_execute(
-            f"SELECT id FROM records WHERE user_id IS NULL or text is null ORDER BY id DESC"):
+            f"SELECT id FROM records WHERE create_at IS NULL and deleted IS NOT TRUE ORDER BY id DESC"):
         if id not in cache:
             cache.add(id)
             result.append(id)
@@ -58,9 +59,14 @@ def thread_function(mode):
             try:
                 for ids in _fetch_id_from_db():
                     status = tweet_id_mode_crawler.crawl(ids)
+                    logging.info(ids)
                     tweets = tweet_extractor.extract(status)
+                    ids_with_text = {t['id'] for t in tweets}
+                    ids_no_text = set(ids) - ids_with_text
+                    logging.info(ids_no_text)
                     tweet_extractor.export(status, file_name="coronavirus")
                     tweet_dumper.insert(tweets)
+                    tweet_dumper.delete(ids_no_text)
                     time.sleep(5)
             except:
                 pass
@@ -129,10 +135,10 @@ if __name__ == "__main__":
     logging.info('Crawler Starting...')
 
     threads = list()
-    for mode in ['id_mode', 'search_mode', 'filter_mode']:
-        thread = Process(target=thread_function, args=(mode,))
-        threads.append(thread)
-        thread.start()
+    # for mode in ['id_mode', 'search_mode', 'filter_mode']:
+    thread = Process(target=thread_function, args=(sys.argv[1],))
+    threads.append(thread)
+    thread.start()
 
     for index, thread in enumerate(threads):
         thread.join()
