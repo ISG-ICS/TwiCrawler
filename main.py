@@ -3,8 +3,8 @@ import logging
 import logging.config
 import os
 import pickle
-import threading
 import time
+from multiprocessing import Process
 
 from crawler.twitter_filter_api_crawler import TweetFilterAPICrawler
 from crawler.twitter_id_mode_crawler import TweetIDModeCrawler
@@ -25,7 +25,7 @@ def _fetch_id_from_db():
     """a generator which generates 100 id list at a time"""
     result = list()
     for id, in Connection.sql_execute(
-            f"SELECT id FROM records WHERE user_id IS NULL or text is null ORDER BY create_at DESC"):
+            f"SELECT id FROM records WHERE user_id IS NULL or text is null ORDER BY id DESC"):
         if id not in cache:
             cache.add(id)
             result.append(id)
@@ -130,7 +130,7 @@ if __name__ == "__main__":
 
     threads = list()
     for mode in ['id_mode', 'search_mode', 'filter_mode']:
-        thread = threading.Thread(target=thread_function, args=(mode,))
+        thread = Process(target=thread_function, args=(mode,))
         threads.append(thread)
         thread.start()
 
