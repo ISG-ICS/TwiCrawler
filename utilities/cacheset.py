@@ -4,7 +4,7 @@ class CacheSet(set):
 
     if more than MAX elements are inserted, elements are popped with regard of insertion order.
     """
-    MAX = 1e6
+    MAX = 1e7
 
     def __init__(self, s=(), maximum_size=MAX):
         super(CacheSet, self).__init__(s)
