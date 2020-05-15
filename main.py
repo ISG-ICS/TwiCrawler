@@ -5,8 +5,9 @@ import os
 import pickle
 import sys
 import time
-from multiprocessing import Process
+from multiprocessing import Process, Lock
 
+from crawler.twitter_covid19_api_crawler import TweetCOVID19APICrawler
 from crawler.twitter_filter_api_crawler import TweetFilterAPICrawler
 from crawler.twitter_id_mode_crawler import TweetIDModeCrawler
 from crawler.twitter_search_api_crawler import TweetSearchAPICrawler
@@ -37,7 +38,7 @@ def _fetch_id_from_db():
     yield result
 
 
-def thread_function(mode):
+def start(mode):
     tweet_dumper = TweetDumper()
     tweet_extractor = TweetExtractor()
     if mode == "filter_mode":
@@ -72,6 +73,32 @@ def thread_function(mode):
                 pass
             finally:
                 time.sleep(5)
+
+    elif mode == 'covid19_mode':
+
+        threads = list()
+        lock = Lock()
+
+        # for mode in ['id_mode', 'search_mode', 'filter_mode']:
+        def thread_function(partition):
+            tweets = list()
+            for tweet in TweetCOVID19APICrawler().crawl(partition):
+                tweets.append(tweet)
+                if len(tweets) == 100:
+                    lock.acquire()
+                    tweet_extractor.export(tweets, file_name="coronavirus")
+                    lock.release()
+                    tweets.clear()
+
+        for i in range(1, 5):
+            print(i)
+            thread = Process(target=thread_function, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        for index, thread in enumerate(threads):
+            thread.join()
+            logging.info("Main    : thread %d done", index)
 
 
 def read_keywords():
@@ -133,13 +160,6 @@ if __name__ == "__main__":
         os.makedirs(BACKUP_DIR)
 
     logging.info('Crawler Starting...')
-
-    threads = list()
     # for mode in ['id_mode', 'search_mode', 'filter_mode']:
-    thread = Process(target=thread_function, args=(sys.argv[1],))
-    threads.append(thread)
-    thread.start()
 
-    for index, thread in enumerate(threads):
-        thread.join()
-        logging.info("Main    : thread %d done", index)
+    start(sys.argv[1])
