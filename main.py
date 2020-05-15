@@ -1,5 +1,4 @@
 import logging
-import logging
 import logging.config
 import os
 import pickle
@@ -91,7 +90,6 @@ def start(mode):
                     tweets.clear()
 
         for i in range(1, 5):
-            print(i)
             thread = Process(target=thread_function, args=(i,))
             threads.append(thread)
             thread.start()
