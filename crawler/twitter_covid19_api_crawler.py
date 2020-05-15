@@ -60,7 +60,7 @@ class TweetCOVID19APICrawler(CrawlerBase):
                         data = json.loads(response_line)
                         try:
                             assert isinstance(data, dict), "returned is not dict"
-                            assert data.get('data') is not None, "no data"
+                            assert 'text' in data and 'id' in data, "no data"
                             yield data
                         except Exception as err:
                             logger.error(f'{data} - {err}')
