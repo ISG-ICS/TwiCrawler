@@ -64,6 +64,7 @@ class TweetCOVID19APICrawler(CrawlerBase):
                             yield data
                         except Exception as err:
                             logger.error(f'{data} - {err}')
+                            raise err
             except Exception as err:
                 logger.error(err)
                 self.wait()
