@@ -90,6 +90,7 @@ def start(mode):
                         lock.release()
                         tweets.clear()
             except:
+                lock.acquire()
                 exit(1)
 
         for i in range(1, 5):
