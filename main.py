@@ -80,14 +80,17 @@ def start(mode):
 
         # for mode in ['id_mode', 'search_mode', 'filter_mode']:
         def thread_function(partition):
-            tweets = list()
-            for tweet in TweetCOVID19APICrawler().crawl(partition):
-                tweets.append(tweet)
-                if len(tweets) == 100:
-                    lock.acquire()
-                    tweet_extractor.export(tweets, file_name="coronavirus")
-                    lock.release()
-                    tweets.clear()
+            try:
+                tweets = list()
+                for tweet in TweetCOVID19APICrawler().crawl(partition):
+                    tweets.append(tweet)
+                    if len(tweets) == 100:
+                        lock.acquire()
+                        tweet_extractor.export(tweets, file_name="coronavirus")
+                        lock.release()
+                        tweets.clear()
+            except:
+                exit(1)
 
         for i in range(1, 5):
             thread = Process(target=thread_function, args=(i,))

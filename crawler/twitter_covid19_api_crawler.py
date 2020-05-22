@@ -44,6 +44,7 @@ class TweetCOVID19APICrawler(CrawlerBase):
         return body['access_token']
 
     def crawl(self, partition):
+        re_attempts = 7
         while True:
             try:
                 logger.info("Attempting to connect to stream...")
@@ -62,12 +63,17 @@ class TweetCOVID19APICrawler(CrawlerBase):
                             assert isinstance(data, dict), "returned is not dict"
                             assert 'text' in data and 'id' in data, "no data"
                             yield data
+                            re_attempts = 7
                         except Exception as err:
                             logger.error(f'{data} - {err}')
                             raise err
             except Exception as err:
-                logger.error(err)
-                self.wait()
+                if re_attempts:
+                    logger.error(err)
+                    self.wait()
+                    re_attempts -= 1
+                else:
+                    raise err
 
     def reset_wait_time(self) -> None:
         """resets the wait time"""
