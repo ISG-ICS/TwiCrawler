@@ -55,14 +55,7 @@
     "notifications": null
   },
   "geo": null,
-  "coordinates": {
-    "coordinates":
-    [
-        -75.14310264,
-        40.05701649
-    ],
-    "type":"Point"
-  },
+  "coordinates": null,
   "place": {
     "attributes": {},
     "bounding_box": {

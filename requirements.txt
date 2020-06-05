@@ -7,5 +7,4 @@ python-twitter
 numpy
 psycopg2
 fake-useragent
-shapely
 geopy
