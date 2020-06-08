@@ -8,3 +8,4 @@ numpy
 psycopg2
 fake-useragent
 geopy
+shapely
