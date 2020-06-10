@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import pickle
 import random
@@ -6,7 +7,14 @@ import random
 from geopy.geocoders import Nominatim
 from shapely.geometry import Polygon, Point
 
+logger = logging.getLogger()
+
 class TwitterJSONTagger:
+    # default we set UNIFORM_DISTRIBUTION_RANDOM as Point in Polygon.
+    GEO_CENTER = False
+    UNIFORM_DISTRIBUTION_RANDOM = True
+    NORMAL_DISTRIBUTION_RANDOM = False
+
     def __init__(self):
         # cache is the hashmap { (city, state), other geo info}
         self.cache = dict()
@@ -20,13 +28,12 @@ class TwitterJSONTagger:
         self.city_data = json.load(city_datafile)
         city_datafile.close()
 
-    def init_geo_cache(self):
+    def _init_geo_cache(self):
         # check pickle module
         filename = "cache_geo_hashmap"
         if os.path.exists(filename):
-            cache_file = open(filename, 'rb')
-            self.cache = pickle.load(cache_file)
-            return
+            with open(filename, 'rb') as cache_file:
+                self.cache = pickle.load(cache_file)
         else:
             city_json = self.city_data
             feature = city_json.get('features')
@@ -39,14 +46,15 @@ class TwitterJSONTagger:
                     self.cache[_city_state] = (item["cityID"], item["countyID"], item["stateID"], item["countyName"])
 
                 else:
-                    raise KeyError("can not build cache from city.json.")
+                    logger.error("load city.json failed.")
+                    raise KeyError()
 
             # store it using pickle
-            cache_file = open(filename, 'wb')
-            pickle.dump(self.cache, cache_file)
+            with open(filename, 'wb+') as cache_file:
+                pickle.dump(self.cache, cache_file)
             cache_file.close()
 
-    def get_coordinate(self, tweet_json: dict, mode: int):
+    def get_coordinate(self, tweet_json: dict):
         coord = tweet_json.get('coordinates')
         place = tweet_json.get('place')
 
@@ -70,42 +78,60 @@ class TwitterJSONTagger:
                     swLat = neLat - 0.0000001
 
                 if (swLog > neLog or swLat > neLat):
-                    raise ValueError("Invalid coordinates in bounding_box.")
+                    logger.error("Invalid coordinates in bounding_box.")
 
                 # Return Central Point or Random Point in the polygon each time.
-                if mode == 0:
+                if TwitterJSONTagger.GEO_CENTER:
                     return ((swLog+neLog) / 2, (swLat+neLat) / 2)
-                elif mode == 1:
+
+                elif TwitterJSONTagger.UNIFORM_DISTRIBUTION_RANDOM:
                     poly = Polygon([(swLog, swLat), (neLog, swLat), (neLog, neLat), (swLog, neLat)])
                     while True:
                         random_point = Point([random.uniform(swLog, neLog), random.uniform(swLat, neLat)])
                         if random_point.within(poly):
-                            return random_point
-                else:
-                    raise ValueError("Invalid mode selection in bounding_box.")
+                            # convert from Point to tuple
+                            coord = (random_point.x, random_point.y)
+                            return coord
 
-    # private: help function. city_state_name: eg. (Irvine, CA). flag: source of infer.
-    def __extract_geo_tag_from_city_and_state(self, tweet_json: dict, coord: tuple, city_state_name: str, flag: str):
-        if city_state_name is None:
-            raise ValueError("Can not find city_name in extract function.")
+                elif TwitterJSONTagger.NORMAL_DISTRIBUTION_RANDOM:
+                    poly = Polygon([(swLog, swLat), (neLog, swLat), (neLog, neLat), (swLog, neLat)])
+                    while True:
+                        random_point = Point([random.normalvariate(mu=(swLog+neLog) / 2, sigma=1), random.normalvariate(mu=(swLat+neLat) / 2, sigma=1)])
+                        if random_point.within(poly):
+                            coord = (random_point.x, random_point.y)
+                            return coord
+                else:
+                    logger.error("Invalid mode selection in bounding_box.")
+            else:
+                logger.error("no place field.")
+
+    def _extract_geo_tag_from_city_and_state(self, tweet_json: dict, coord: tuple, city_state_name: str, flag: str):
+        '''help function. city_state_name: eg. (Irvine, CA). flag: source of infer.'''
+
+        if not city_state_name:
+            logger.error("Can not find city_name in extract function.")
+            raise KeyError()
 
         if "," not in city_state_name:
-            raise ValueError("Invalid city_name to parse in extract function.")
+            # logger.error("Invalid city_name to parse in extract function.")
+            raise KeyError()
 
         state_of_city = city_state_name.split(",")[1]
         target_state = state_of_city.strip()
         full_state_name = self.abbrev_us_state.get(target_state)
 
         if full_state_name is None:
-            raise KeyError("Can not find state_name in extract function.")
+            logger.error("Can not find state_name in extract function.")
+            raise KeyError()
 
         # search it in the cache(hashmap) to get the county's name
         target_key = city_state_name.split(",")[0] + ', ' + full_state_name
 
-        if coord is not None:
+        if coord is None:
             # coord is empty now
             location = self.geo_locator.geocode(target_key)
-            coord = (location.longitude, location.latitude)
+            if location is not None:
+                coord = (location.longitude, location.latitude)
 
         geo_content = self.cache.get(target_key)
         if geo_content is not None:
@@ -120,33 +146,42 @@ class TwitterJSONTagger:
             geo_tag["source"] = flag
 
             tweet_json['geo_tag'] = geo_tag
-            print(geo_tag)
+            logger.info(geo_tag)
             
         else:
-            raise ValueError("Not find county.")
+            logger.error("not find county.")
+            raise KeyError()
 
-    def __infer_geo_from_place(self, tweet_json: dict, coord: tuple):
+    def _infer_geo_from_place(self, tweet_json: dict, coord: tuple):
         place = tweet_json.get('place')
         if place is not None:
             # extract the city and state abbrev
             city_state_name = place.get('full_name')
             if city_state_name is None:
-                try:
-                    raise KeyError()
-                except KeyError:
-                    print("Not find full_name key in place.")
-                return
+                logger.error("Not find full_name key in place.")
+                raise KeyError()
 
-            self.__extract_geo_tag_from_city_and_state(tweet_json, coord, city_state_name, "place")
+            try:
+                self._extract_geo_tag_from_city_and_state(tweet_json, coord, city_state_name, "place")
+            except KeyError:
+                # logger.error("_extract_geo_tag_from_city_and_state() failed.")
+                raise KeyError()
+        else:
+            # logger.error("place is None.")
+            raise KeyError()
 
-    def __infer_geo_from_coord(self, tweet_json: dict, coord: tuple):
+    def _infer_geo_from_coord(self, tweet_json: dict, coord: tuple):
         # geopy require (Lat, Long)
         t = (coord[1], coord[0])
         location = self.geo_locator.reverse(t)
 
-        if location is None:
-            tweet_json['geo_tag'] = {"coordinate": coord}
-            return
+        if location is None or location.address is None:
+            logger.error("Not find location using geopy.")
+            raise ValueError()
+
+        if len(location.address.split(",")) < 8:
+            logger.error("Not find location using geopy.")
+            raise ValueError()
 
         # make up the (city, state) as key to search
         target_key = location.address.split(",")[3].strip() + ', ' + location.address.split(",")[5].strip()
@@ -164,58 +199,95 @@ class TwitterJSONTagger:
             geo_tag["source"] = "coordinate"
 
             tweet_json['geo_tag'] = geo_tag
-            print(geo_tag)
+            logger.info(geo_tag)
 
         else:
-            raise ValueError("Not find county.")
+            logger.error("not find county.")
+            raise ValueError()
 
-    def __infer_geo_from_user(self, tweet_json, coord: tuple):
+    def _infer_geo_from_user(self, tweet_json, coord: tuple):
         user = tweet_json.get('user')
         if user is not None:
             # extract the city and state abbrev
             city_state_name = user.get('location')
             if city_state_name is None:
-                try:
-                    raise KeyError()
-                except KeyError:
-                    print("Not find full_name key in place.")
-                return
+                #logger.error("not find location in user field.")
+                raise KeyError()
 
-            self.__extract_geo_tag_from_city_and_state(tweet_json, coord, city_state_name, "user")
+            try:
+                self._extract_geo_tag_from_city_and_state(tweet_json, coord, city_state_name, "user")
+            except KeyError:
+                # logger.error("_extract_geo_tag_from_city_and_state() failed.")
+                raise KeyError()
+
         else:
             # The methods above are all not working, for now we skip.
             # TODO: Use NLP to infer geo_tag from text in tweet.
-            pass
+            logger.error("no user field.")
+            raise KeyError()
 
-    def tag_one_tweet(self, tweet_json: dict, mode: int):
+    def tag_one_tweet(self, tweet_json: dict):
         # mode: 0: central point; 1: random point.
         # call function
-        self.init_geo_cache()
+        try:
+            # build hashmap
+            self._init_geo_cache()
+        except KeyError:
+            logger.error("_init_geo_cache(): can not build cache from city.json.")
 
         # get the coordinates
-        coord = self.get_coordinate(tweet_json, mode)
-
+        coord = self.get_coordinate(tweet_json)
         # get the city, county, state
         # 1. check the place field
-        self.__infer_geo_from_place(tweet_json, coord)
+        try:
+            self._infer_geo_from_place(tweet_json, coord)
+        except KeyError:
+            logger.error("_infer_geo_from_place(): infer failed.")
 
+        # step 1 failed.
         if 'geo_tag' not in tweet_json:
             # 2. Check the coordinate.
             if coord:
-                self.__infer_geo_from_coord(tweet_json, coord)
+                try:
+                    self._infer_geo_from_coord(tweet_json, coord)
+                except ValueError:
+                    logger.error("_infer_geo_from_coord(): infer failed.")
             else:
                 # 3. infer from the "User" field
-                self.__infer_geo_from_user(tweet_json, coord)
+                try:
+                    self._infer_geo_from_user(tweet_json, coord)
+                except KeyError:
+                    logger.error("_infer_geo_from_user(): infer failed.")
+
+        # Return None for exceptions.
+        if 'geo_tag' not in tweet_json:
+            # return None of geo_tag
+            tweet_json['geo_tag'] = None
 
         return tweet_json
 
 if __name__ == '__main__':
-    # test case
-    tweet_datafile = open("example.json", "r", encoding='UTF-8')
-    tweet_data = json.load(tweet_datafile)
-    tweet_datafile.close()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(logging.FileHandler("log"))
 
-    # call the function.
+    # initialize
     twitter_json_tagger = TwitterJSONTagger()
-    twitter_json_tagger.tag_one_tweet(tweet_data, 1)
+
+    # test case
+    counter = 0
+    res = 0
+    for line in open("test", "r", encoding='UTF-8'):
+        counter += 1
+        if counter > 100:
+            break
+
+        tweet_data = json.loads(line)
+        # call the function.
+        temp = twitter_json_tagger.tag_one_tweet(tweet_data)
+        if temp.get('geo_tag') is not None:
+            res += 1
+
+    print("valid tweets: ", res)
+
+
 
