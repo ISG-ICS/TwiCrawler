@@ -16,6 +16,7 @@ from paths import GENERAL_LOG_CONFIG_PATH
 
 
 class RandomMode(Enum):
+    """RANDOM mode may lead to different results when you run the same dataSet."""
     GEO_CENTER = 1
     UNIFORM_DISTRIBUTION_RANDOM = 2
     NORMAL_DISTRIBUTION_RANDOM = 3
@@ -23,9 +24,10 @@ class RandomMode(Enum):
 
 class TwitterJSONTagger:
 
-    def __init__(self, random_mode=RandomMode.UNIFORM_DISTRIBUTION_RANDOM):
+    def __init__(self, random_mode=RandomMode.UNIFORM_DISTRIBUTION_RANDOM, sigma=1):
         # by default we set UNIFORM_DISTRIBUTION_RANDOM as Point in Polygon.
         self._random_mode = random_mode
+        self.sigma = sigma
         self.shelve = shelve.open('geo_tag.shelve')
         try:
             # self.abbrev_us_state is the relation between the state's full name and abbrev.
@@ -99,15 +101,15 @@ class TwitterJSONTagger:
             self.shelve['geometries'] = self._geometries
             logger.debug(f"successfully shelved _geometries")
 
-    def get_coordinate(self, tweet_json: Dict, sigma=1) -> Optional[Tuple[float, float]]:
-        """Returns a longitude, latitude pair found in coordinates or place; returns None if not applicable"""
+    def get_coordinate(self, tweet_json: Dict):
+        """Returns a longitude, latitude pair found in coordinates or bounding_box with source, returns None if not applicable"""
         coord = tweet_json.get('coordinates')
         place = tweet_json.get('place')
         logger.debug(f"extracted coord: {coord}")
         logger.debug(f"extracted place: {place}")
         if coord is not None:
             logger.debug("using coord")
-            return coord.get('coordinates')
+            return (coord.get('coordinates')), "coordinates"
         elif place is not None:
 
             # 2. get the central point of the bounding_box
@@ -126,13 +128,14 @@ class TwitterJSONTagger:
 
             # Return Central Point or Random Point in the polygon each time.
             if self._random_mode == RandomMode.GEO_CENTER:
-                return (sw_lng + ne_lng) / 2.0, (sw_lat + ne_lat) / 2.0
+                return ((sw_lng + ne_lng) / 2.0, (sw_lat + ne_lat) / 2.0), "bounding_box"
 
             elif self._random_mode == RandomMode.UNIFORM_DISTRIBUTION_RANDOM:
-                return self._uniform_distribute_random_point(ne_lat, ne_lng, sw_lat, sw_lng)
+                return self._uniform_distribute_random_point(ne_lat, ne_lng, sw_lat, sw_lng), "bounding_box"
 
             elif self._random_mode == RandomMode.NORMAL_DISTRIBUTION_RANDOM:
-                return self._normal_distribution_random_point(ne_lat, ne_lng, sigma, sw_lat, sw_lng)
+                return self._normal_distribution_random_point(ne_lat, ne_lng, self.sigma, sw_lat, sw_lng), "bounding_box"
+
             else:
                 raise ValueError("Invalid mode selection in bounding_box.")
         else:
@@ -143,7 +146,7 @@ class TwitterJSONTagger:
         poly = Polygon([(sw_lng, sw_lat), (ne_lng, sw_lat), (ne_lng, ne_lat), (sw_lng, ne_lat)])
         while True:
             random_point = Point([random.normalvariate(mu=(sw_lng + ne_lng) / 2, sigma=sigma),
-                                  random.normalvariate(mu=(sw_lat + ne_lat) / 2, sigma=1)])
+                                  random.normalvariate(mu=(sw_lat + ne_lat) / 2, sigma=sigma)])
             if random_point.within(poly):
                 return random_point.x, random_point.y
 
@@ -170,7 +173,7 @@ class TwitterJSONTagger:
         logger.debug(f"\t\t\t\t\t\t\t  to [{ne_lat, ne_lng, sw_lat, sw_lng}]")
         return sw_lat, sw_lng
 
-    def _extract_geo_tag_from_city_and_state(self, coord: tuple, city_state_name: str,
+    def _extract_geo_tag_from_city_and_state(self, coord: Optional[tuple], coord_source: str, city_state_name: str,
                                              flag: str) -> Dict:
         """helper function. city_state_name: eg. (Irvine, CA). flag: source of infer."""
 
@@ -197,10 +200,11 @@ class TwitterJSONTagger:
         geo_tag["cityID"] = geo_content[0]
         geo_tag["cityName"] = city_state_name.split(",")[0]
         geo_tag["coordinate"] = coord
+        geo_tag["coordinate_source"] = coord_source
         geo_tag["source"] = flag
         return geo_tag
 
-    def _infer_geo_from_place(self, tweet_json: Dict, coord: Tuple[int, int]):
+    def _infer_geo_from_place(self, tweet_json: Dict, coord: Tuple[float, float], coord_source: str) -> Optional[Dict]:
         if not self._city_state_mapping:
             self._init_city_state_mapping()
 
@@ -210,15 +214,15 @@ class TwitterJSONTagger:
             city_state_name = place.get('full_name')
             if city_state_name is None:
                 raise KeyError("Not find full_name key in place.")
-            return self._extract_geo_tag_from_city_and_state(coord, city_state_name, "place")
+            return self._extract_geo_tag_from_city_and_state(coord, coord_source, city_state_name, "place")
 
         else:
             logger.debug("place is None.")
 
-    def _infer_geo_from_coord(self, coord: tuple) -> Optional[Dict]:
+    def _infer_geo_from_coord(self, coord: tuple, coord_source: str) -> Optional[Dict]:
 
         # only consider USA
-        if coord[0] > -60 or coord[1] < 18:
+        if coord[0] > -68 or coord[0] < -162 or coord[1] < 19 or coord[1] > 65:
             raise ValueError("this location is not in USA.")
 
         # traverse the hash map to see if this coord is in the tree.
@@ -245,6 +249,7 @@ class TwitterJSONTagger:
             geo_tag["cityID"] = geo_content[4]
             geo_tag["cityName"] = geo_content[5]
             geo_tag["coordinate"] = coord
+            geo_tag["coordinate_source"] = coord_source
             geo_tag["source"] = "coordinate"
 
             return geo_tag
@@ -252,7 +257,8 @@ class TwitterJSONTagger:
         else:
             raise ValueError("can not load geo_content.")
 
-    def _infer_geo_from_user(self, tweet_json, coord: tuple) -> Optional[dict]:
+    def _infer_geo_from_user(self, tweet_json) -> Optional[dict]:
+        '''we know that coord is None.'''
         user = tweet_json.get('user')
         if user is not None:
             # extract the city and state abbrev
@@ -260,37 +266,37 @@ class TwitterJSONTagger:
             if city_state_name is None:
                 raise KeyError("not find location in user field.")
 
-            return self._extract_geo_tag_from_city_and_state(coord, city_state_name, "user")
+            return self._extract_geo_tag_from_city_and_state(None, '', city_state_name, "user")
         else:
             logger.debug("no user")
             return None
 
-    def tag_one_tweet(self, tweet_json: Dict, sigma=1) -> Dict:
+    def tag_one_tweet(self, tweet_json: Dict) -> Dict:
         logger.debug("-----------------------------------------")
         logger.debug(f"tweet id: {tweet_json['id']}")
         coord = None
+        coord_source = ''
         try:
             # get the coordinates
-            coord = self.get_coordinate(tweet_json, sigma)
-
+            coord, coord_source = self.get_coordinate(tweet_json)
             # 1. check the place field
-            tweet_json['geo_tag'] = self._infer_geo_from_place(tweet_json, coord)
+            tweet_json['geo_tag'] = self._infer_geo_from_place(tweet_json, coord, coord_source)
         except (KeyError, ValueError) as err:
             logger.debug(err)
 
         # step 1 failed.
-        if tweet_json.get('get_tag') is None:
+        if tweet_json.get('geo_tag') is None:
 
             if coord:
                 # 2. Check the coordinate.
                 try:
-                    tweet_json['geo_tag'] = self._infer_geo_from_coord(coord)
+                    tweet_json['geo_tag'] = self._infer_geo_from_coord(coord, coord_source)
                 except (KeyError, ValueError) as err:
                     logger.debug(err)
             else:
                 # 3. infer from the "User" field
                 try:
-                    tweet_json['geo_tag'] = self._infer_geo_from_user(tweet_json, coord)
+                    tweet_json['geo_tag'] = self._infer_geo_from_user(tweet_json)
 
                 except (KeyError, ValueError) as err:
                     logger.debug(err)
@@ -330,16 +336,17 @@ if __name__ == '__main__':
             tweet_data = json.loads(line)
             counters['tweet'] += 1
             # we set sigma to 1
-            tagged_tweet = twitter_json_tagger.tag_one_tweet(tweet_data, 1)
+            tagged_tweet = twitter_json_tagger.tag_one_tweet(tweet_data)
 
             if tagged_tweet.get('geo_tag') is not None:
                 counters['geo_tag'] += 1
+
                 if tagged_tweet.get('geo_tag').get('source') == 'user':
                     counters['user'] += 1
-
                 elif tagged_tweet.get('geo_tag').get('source') == 'place':
                     counters['place'] += 1
                 elif tagged_tweet.get('geo_tag').get('source') == 'coordinate':
+                    # Note: This number could be different if you use Random mode to get point.
                     counters['coordinate'] += 1
 
             if counters['tweet'] % 100 == 0:
@@ -350,8 +357,3 @@ if __name__ == '__main__':
 
     print(counters)
     print("average performance for 100 tweets: ", mean(performance), "s")
-
-    # TODO: change _extract to return a dict, append a coord.
-    # TODO: coordinate and bounding box.
-    # TODO: debug place inconsistency (3 vs. 4) in test.
-    # TODO: sigma
