@@ -33,18 +33,21 @@ class TwitterJSONTagger:
             # self.abbrev_us_state is the relation between the state's full name and abbrev.
             with open('us_state_abbrev.json') as json_file:
                 self._abbrev_us_state = json.load(json_file)
-            # cache is the hash map { (city, state), other geo info}
-            self._city_state_mapping = dict()
             # self.city_datafile is a big json.
             self._city_json_file = pygeoj.load(filepath="city.json")
+            # infer on place
             self._init_city_state_mapping()
+            # infer on coordinate
             self._init_coord_tree_cache()
+            # infer on user
+            self._init_location_coordinate_mapping()
         except (ValueError, FileExistsError, FileNotFoundError) as err:
             logger.critical(err)
             exit(1)
 
     def _init_city_state_mapping(self) -> None:
         """Load city state mapping from file or pickle"""
+        self._city_state_mapping = dict()
 
         if 'city_state_mapping' in self.shelve:
             self._city_state_mapping = self.shelve['city_state_mapping']
@@ -68,9 +71,9 @@ class TwitterJSONTagger:
 
     def _init_coord_tree_cache(self) -> None:
         """Initialize or read hash map from pickle"""
-
         self._coord_mapping = dict()
         self._geometries = list()
+
         if 'coord_mapping' in self.shelve and 'geometries' in self.shelve:
             self._coord_mapping = self.shelve['coord_mapping']
             logger.debug("loaded coord_mapping from geo_tag.shelve")
@@ -100,6 +103,48 @@ class TwitterJSONTagger:
             logger.debug("shelving _geometries")
             self.shelve['geometries'] = self._geometries
             logger.debug(f"successfully shelved _geometries")
+
+    def _init_location_coordinate_mapping(self) -> None:
+        """Load location_coordinate_mapping from file or pickle"""
+        self._location_coordinate_mapping = dict()
+
+        if 'location_coordinate_mapping' in self.shelve:
+            self._location_coordinate_mapping = self.shelve['location_coordinate_mapping']
+            logger.debug("loaded location_coordinate_mapping from geo_tag.shelve")
+        else:
+            logger.debug("extracting features from city json file")
+            for feature in self._city_json_file:
+                # store the city, state as key; coordinate(bounding_box) as value.
+                bbox = feature.geometry.bbox
+                if feature.properties is not None:
+                    _city_state = feature.properties["name"] + ", " + feature.properties["stateName"]
+                    sw_lng = bbox[0]
+                    sw_lat = bbox[1]
+                    ne_lng = bbox[2]
+                    ne_lat = bbox[3]
+                    sw_lat, sw_lng = self._standardize_bounding_box(ne_lat, ne_lng, sw_lat, sw_lng)
+
+                    # Select Central Point or Random Point in the bounding_box as value each time.
+                    if self._random_mode == RandomMode.GEO_CENTER:
+                        _infer_coord = (sw_lng + ne_lng) / 2.0, (sw_lat + ne_lat) / 2.0
+
+                    elif self._random_mode == RandomMode.UNIFORM_DISTRIBUTION_RANDOM:
+                        _infer_coord = self._uniform_distribute_random_point(ne_lat, ne_lng, sw_lat, sw_lng)
+
+                    elif self._random_mode == RandomMode.NORMAL_DISTRIBUTION_RANDOM:
+                        _infer_coord = self._normal_distribution_random_point(ne_lat, ne_lng, self.sigma, sw_lat,
+                                                                      sw_lng)
+                    else:
+                        raise ValueError("Invalid mode selection in bounding_box.")
+
+                    # key, value
+                    self._location_coordinate_mapping[_city_state] = _infer_coord
+                else:
+                    raise ValueError("no feature properties found, load city.json failed.")
+
+            logger.debug("shelving location_coordinate_mapping")
+            self.shelve['location_coordinate_mapping'] = self._location_coordinate_mapping
+            logger.debug(f"successfully shelved _location_coordinate_mapping")
 
     def get_coordinate(self, tweet_json: Dict):
         """Returns a longitude, latitude pair found in coordinates or bounding_box with source, returns None if not applicable"""
@@ -135,7 +180,6 @@ class TwitterJSONTagger:
 
             elif self._random_mode == RandomMode.NORMAL_DISTRIBUTION_RANDOM:
                 return self._normal_distribution_random_point(ne_lat, ne_lng, self.sigma, sw_lat, sw_lng), "bounding_box"
-
             else:
                 raise ValueError("Invalid mode selection in bounding_box.")
         else:
@@ -189,8 +233,12 @@ class TwitterJSONTagger:
 
         # search it in the cache(hash map) to get the county's name
         target_key = f'{city_name}, {full_state_name}'
-
         geo_content = self._city_state_mapping[target_key]
+
+        if coord == None:
+            # infer coordinate based on the user_location
+            coord = self._location_coordinate_mapping[target_key]
+            coord_source = "user_location"
 
         geo_tag = dict()
         geo_tag["stateID"] = geo_content[2]
@@ -205,15 +253,16 @@ class TwitterJSONTagger:
         return geo_tag
 
     def _infer_geo_from_place(self, tweet_json: Dict, coord: Tuple[float, float], coord_source: str) -> Optional[Dict]:
-        if not self._city_state_mapping:
-            self._init_city_state_mapping()
-
         place = tweet_json.get('place')
         if place is not None:
             # extract the city and state abbrev
             city_state_name = place.get('full_name')
             if city_state_name is None:
                 raise KeyError("Not find full_name key in place.")
+
+            if not self._city_state_mapping:
+                self._init_city_state_mapping()
+
             return self._extract_geo_tag_from_city_and_state(coord, coord_source, city_state_name, "place")
 
         else:
@@ -266,9 +315,13 @@ class TwitterJSONTagger:
             if city_state_name is None:
                 raise KeyError("not find location in user field.")
 
-            return self._extract_geo_tag_from_city_and_state(None, '', city_state_name, "user")
+            # infer coordinate based on the location
+            if not self._location_coordinate_mapping:
+                self._init_location_coordinate_mapping()
+
+            return self._extract_geo_tag_from_city_and_state(None, '', city_state_name, "user_profile")
         else:
-            logger.debug("no user")
+            logger.debug("no user field.")
             return None
 
     def tag_one_tweet(self, tweet_json: Dict) -> Dict:
@@ -297,9 +350,11 @@ class TwitterJSONTagger:
                 # 3. infer from the "User" field
                 try:
                     tweet_json['geo_tag'] = self._infer_geo_from_user(tweet_json)
-
                 except (KeyError, ValueError) as err:
                     logger.debug(err)
+
+        if 'geo_tag' in tweet_json:
+            logger.info(tweet_json['geo_tag'])
 
         # The methods above are all not working, for now we skip.
         # TODO: Use NLP to infer geo_tag from text in tweet.
@@ -335,7 +390,6 @@ if __name__ == '__main__':
         for line in _input:
             tweet_data = json.loads(line)
             counters['tweet'] += 1
-            # we set sigma to 1
             tagged_tweet = twitter_json_tagger.tag_one_tweet(tweet_data)
 
             if tagged_tweet.get('geo_tag') is not None:
