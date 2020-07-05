@@ -12,7 +12,7 @@ from crawler.twitter_id_mode_crawler import TweetIDModeCrawler
 from crawler.twitter_search_api_crawler import TweetSearchAPICrawler
 from dumper.twitter_dumper import TweetDumper
 from extractor.twitter_extractor import TweetExtractor
-from paths import TWITTER_TEXT_CACHE, LOG_CONFIG_PATH, LOG_DIR, BACKUP_DIR, CACHE_DIR
+from paths import TWITTER_TEXT_CACHE, TASK_MANAGER_LOG_CONFIG_PATH, LOG_DIR, BACKUP_DIR, CACHE_DIR
 from utilities.cacheset import CacheSet
 from utilities.connection import Connection
 
@@ -90,7 +90,7 @@ def initialize_logger() -> logging.Logger:
     Initializes a logger
     :return: initialized logger
     """
-    with open(LOG_CONFIG_PATH, 'r') as file:
+    with open(TASK_MANAGER_LOG_CONFIG_PATH, 'r') as file:
         # create path to save logs
         if not os.path.exists(LOG_DIR):
             os.makedirs(LOG_DIR)
