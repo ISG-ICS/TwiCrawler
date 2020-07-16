@@ -24,7 +24,7 @@ class RandomMode(Enum):
 
 class TwitterJSONTagger:
 
-    def __init__(self, random_mode=RandomMode.UNIFORM_DISTRIBUTION_RANDOM, sigma=1):
+    def __init__(self, random_mode=RandomMode.UNIFORM_DISTRIBUTION_RANDOM, sigma=0.01):
         # by default we set UNIFORM_DISTRIBUTION_RANDOM as Point in Polygon.
         self._random_mode = random_mode
         self.sigma = sigma
@@ -188,11 +188,18 @@ class TwitterJSONTagger:
     @staticmethod
     def _normal_distribution_random_point(ne_lat, ne_lng, sigma, sw_lat, sw_lng):
         poly = Polygon([(sw_lng, sw_lat), (ne_lng, sw_lat), (ne_lng, ne_lat), (sw_lng, ne_lat)])
-        while True:
+        # special case, when the polygon is too "tiny"
+        if sw_lng == ne_lng - 0.0000001 and sw_lat == ne_lat - 0.0000001:
+            # we just return it
             random_point = Point([random.normalvariate(mu=(sw_lng + ne_lng) / 2, sigma=sigma),
                                   random.normalvariate(mu=(sw_lat + ne_lat) / 2, sigma=sigma)])
-            if random_point.within(poly):
-                return random_point.x, random_point.y
+            return random_point.x, random_point.y
+        else:
+            while True:
+                random_point = Point([random.normalvariate(mu=(sw_lng + ne_lng) / 2, sigma=sigma),
+                                      random.normalvariate(mu=(sw_lat + ne_lat) / 2, sigma=sigma)])
+                if random_point.within(poly):
+                    return random_point.x, random_point.y
 
     @staticmethod
     def _uniform_distribute_random_point(ne_lat, ne_lng, sw_lat, sw_lng):
