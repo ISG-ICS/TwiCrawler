@@ -10,7 +10,7 @@ from utilities.ini_parser import parse
 class TwitterAPILoadBalancer:
     iter_index = 0
     apis = [twitter.Api(**config, sleep_on_rate_limit=True) for config in
-            parse(TWITTER_API_CONFIG_PATH).values()]
+            parse(TWITTER_API_CONFIG_PATH).values() if config.get('access_token_key')]
     lock = Lock()
 
     @staticmethod

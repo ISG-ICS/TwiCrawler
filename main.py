@@ -1,18 +1,18 @@
-import json
 import logging
 import logging.config
 import os
 import pickle
 import sys
 import time
-from multiprocessing import Process
+from multiprocessing import Process, Lock
 
+from crawler.twitter_covid19_api_crawler import TweetCOVID19APICrawler
 from crawler.twitter_filter_api_crawler import TweetFilterAPICrawler
 from crawler.twitter_id_mode_crawler import TweetIDModeCrawler
 from crawler.twitter_search_api_crawler import TweetSearchAPICrawler
 from dumper.twitter_dumper import TweetDumper
 from extractor.twitter_extractor import TweetExtractor
-from paths import TWITTER_TEXT_CACHE, TASK_MANAGER_LOG_CONFIG_PATH, LOG_DIR, BACKUP_DIR, CACHE_DIR
+from paths import TWITTER_TEXT_CACHE, LOG_DIR, BACKUP_DIR, CACHE_DIR
 from utilities.cacheset import CacheSet
 from utilities.connection import Connection
 
@@ -37,7 +37,7 @@ def _fetch_id_from_db():
     yield result
 
 
-def thread_function(mode):
+def start(mode):
     tweet_dumper = TweetDumper()
     tweet_extractor = TweetExtractor()
     if mode == "filter_mode":
@@ -73,6 +73,35 @@ def thread_function(mode):
             finally:
                 time.sleep(5)
 
+    elif mode == 'covid19_mode':
+
+        threads = list()
+        lock = Lock()
+
+        # for mode in ['id_mode', 'search_mode', 'filter_mode']:
+        def thread_function(partition):
+            try:
+                tweets = list()
+                for tweet in TweetCOVID19APICrawler().crawl(partition):
+                    tweets.append(tweet)
+                    if len(tweets) == 100:
+                        lock.acquire()
+                        tweet_extractor.export(tweets, file_name="coronavirus")
+                        lock.release()
+                        tweets.clear()
+            except:
+                lock.acquire()
+                exit(1)
+
+        for i in range(1, 5):
+            thread = Process(target=thread_function, args=(i,))
+            threads.append(thread)
+            thread.start()
+
+        for index, thread in enumerate(threads):
+            thread.join()
+            logging.info("Main    : thread %d done", index)
+
 
 def read_keywords():
     keywords = set()
@@ -84,46 +113,11 @@ def read_keywords():
     logging.info(f"LOADING keywords={keywords}")
     return list(keywords)
 
-
-def initialize_logger() -> logging.Logger:
-    """
-    Initializes a logger
-    :return: initialized logger
-    """
-    with open(TASK_MANAGER_LOG_CONFIG_PATH, 'r') as file:
-        # create path to save logs
-        if not os.path.exists(LOG_DIR):
-            os.makedirs(LOG_DIR)
-        config = json.load(file)
-        # use json file to config the logger
-        logging.config.dictConfig(config)
-        logger = logging.getLogger('1')
-        info_format = '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(module)s] [%(funcName)s]: %(message)s'
-        date_format = '%m/%d/%Y-%H:%M:%S'
-        formatter = logging.Formatter(fmt=info_format, datefmt=date_format)
-        handler_names = ['info.log', 'error.log']
-        current_time = time.strftime('%m%d%Y_%H-%M-%S_', time.localtime(time.time()))
-        for handler_name in handler_names:
-            file_name = os.path.join(LOG_DIR, current_time + handler_name)
-            # create log file in advance
-            if not os.path.exists(file_name):
-                # `touch` only works on *nix systems, not cross-platform. using open()
-                with open(file_name, 'w'):
-                    pass
-            file_handler = logging.FileHandler(file_name, mode='a', encoding=None, delay=False)
-            file_handler.setLevel(
-                logging.DEBUG if 'info' in handler_name else logging.ERROR)
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-
-    return logger
-
-
 if __name__ == "__main__":
     format = '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(module)s] [%(funcName)s]: %(message)s'
     handler_name = 'main.log'
     current_time = time.strftime('%m%d%Y_%H-%M-%S_', time.localtime(time.time()))
-    logging.basicConfig(format=format, level=logging.INFO, filename=os.path.join(LOG_DIR, current_time + handler_name),
+    logging.basicConfig(format=format, level=logging.ERROR, filename=os.path.join(LOG_DIR, current_time + handler_name),
                         datefmt="%H:%M:%S")
     logging.getLogger().addHandler(logging.StreamHandler())
 
@@ -133,13 +127,6 @@ if __name__ == "__main__":
         os.makedirs(BACKUP_DIR)
 
     logging.info('Crawler Starting...')
-
-    threads = list()
     # for mode in ['id_mode', 'search_mode', 'filter_mode']:
-    thread = Process(target=thread_function, args=(sys.argv[1],))
-    threads.append(thread)
-    thread.start()
 
-    for index, thread in enumerate(threads):
-        thread.join()
-        logging.info("Main    : thread %d done", index)
+    start(sys.argv[1])
