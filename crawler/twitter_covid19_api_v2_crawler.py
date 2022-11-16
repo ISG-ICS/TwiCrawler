@@ -39,7 +39,7 @@ class TweetCOVID19APIV2Crawler(CrawlerBase):
                 extractor.export([data.decode('utf-8')], file_name="coronavirus")
 
         # Replace with your own bearer token below
-        self.client = V2Client(self.get_bearer_token(), wait_on_rate_limit = True)
+        self.client = V2Client(self.get_bearer_token(), wait_on_rate_limit=True)
         # This is where we set our filter rule
         self.client.add_rules(tweepy.StreamRule("context:123.1220701888179359745"))
 
@@ -73,4 +73,3 @@ class TweetCOVID19APIV2Crawler(CrawlerBase):
 if __name__ == '__main__':
     logger.setLevel(logging.INFO)
     logger.addHandler(logging.StreamHandler())
-
