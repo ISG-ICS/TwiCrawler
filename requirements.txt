@@ -5,7 +5,7 @@ tokenizer
 rootpath
 python-twitter
 numpy
-psycopg2
+tweepy
 fake-useragent
 PyGeoj
 shapely
